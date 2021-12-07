@@ -1,0 +1,84 @@
+---
+title: "NYPD Shooting Data Project"
+output:
+  pdf_document: default
+  html_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r package loader, include=FALSE}
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+library(knitr)
+library(ggpubr)
+```
+
+```{r nypd_shooting_data, include=FALSE}
+nypd_shooting_data <- read.csv("https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD")
+nypd_shooting_data %>% select(-INCIDENT_KEY, -JURISDICTION_CODE, -LOCATION_DESC, -STATISTICAL_MURDER_FLAG)
+nypd_shooting_data  %>% select(-(X_COORD_CD:Lon_Lat))
+nypd_shooting_data <- nypd_shooting_data %>% mutate(OCCUR_DATE=as_date(OCCUR_DATE, format="%d.%m.%Y"))
+```
+
+
+We have a large dataset of shootings in New York City from the beginning of 2006 to the end of 2020 broken down by date, time of occurence, borough, precinct within borough, age/sex/race of the perpetrator, and age/sex/race of the victim. There are 23,585 entries, so I'm not going to reproduce the entire dataset here. But, so that we can see a summary at a glance, let me include a bar graph of shootings by borough, broken down by the age of the victim. 
+
+``` {r shootings by borough}
+ggplot(nypd_shooting_data, aes(x = factor(BORO), fill = VIC_AGE_GROUP)) + 
+  labs(x = "Borough", fill = "Victim Age", title = "Shootings by Borough, 2006-2020") + 
+  geom_bar()
+```
+At first glance, it seems that Brooklyn has the highest number of shooting incidents by a good margin, but we have to account for population. However, it is extremely difficult to find accurate population data from intercensal years, so I had to limit my analysis to the years 2010 and 2020. From the original dataset and US Census population data, I created the following table. NOte that the last column is simply the value in the fourth column multiplied by 1000 and divided by the value in the population column. 
+
+
+``` {r create incidence per thousand table, echo=FALSE}
+incidents_per_thousand_table <- data.frame(BORO = c("Brooklyn", "Brooklyn", "Bronx", "Bronx", "Manhattan", "Manhattan", "Queens", "Queens", "Staten Island", "Staten Island"), YEAR = c("2010", "2020", "2010", "2020", "2010", "2020", "2010", "2020", "2010", "2020"), POPULATION = c("2504700", "2736074", "1385108", "1472654", "1585873", "1694251", "2230722", "2405464", "468730", "495747"), SHOOTINGS = c("805", "819", "525", "504", "260", "272", "288", "303", "34", "50"), SHOOTINGS_PER_THOUSAND = c("0.321", "0.299", "0.379", "0.342", "0.164", "0.161", "0.129", "0.126", "0.073", "0.101"))
+
+knitr::kable(incidents_per_thousand_table, format = "latex")
+```
+
+Visualizing this with a grouped bar chart, we can see that, adjusted for population, it is actually the Bronx that had the highest incidence rate of shootings (again, at least for the two years for which I was able to find accurate population data).
+
+``` {r shooting incidence per thousand bar chart}
+ggplot(incidents_per_thousand_table, aes(fill = YEAR, y = SHOOTINGS_PER_THOUSAND, x=factor(BORO)))+
+  labs(x = "Borough", fill = "Year", y = "Shootings per thousand")+
+  geom_bar(position = "dodge", stat = "identity")
+```
+
+One interesting thing we can try and model with this data is the relationship, if there is much of one, between total shootings and temperature. For convenience's sake, I have chosen to model this relationship in 2006 only. First, I created the following table from the original dataset. 
+
+``` {r create incidents vs temp table}
+nypd_shooting_data <- nypd_shooting_data %>% mutate(OCCUR_DATE=as.Date(OCCUR_DATE, format="%d.%m.%Y"))
+nypd_shooting_data$M_Y <- format(as.Date(nypd_shooting_data$OCCUR_DATE, format = "%d-%m-%Y"), "%m-%Y")
+incidents_vs_temp <- data.frame(MONTH_YEAR = c("01-2006", "02-2006", "03-2006", "04-2006", "05-2006", "06-2006", "07-2006", "08-2006", "09-2006", "10-2006", "11-2006", "12-2006"))
+incidents_vs_temp$TOTAL_SHOOTINGS <- c("129", "97", "102", "156", "173", "180", "233", "245", "196", "199", "167", "178")
+incidents_vs_temp$AVG_TEMP_F <- c("41.56", "36.49", "43.34", "55.19", "62.87", "72.59", "79.47", "77.52", "68.71", "58.76", "53.32", "45.7")
+
+knitr::kable(incidents_vs_temp, format="latex")
+```
+The third column was created with historical temperature data online from Weather Underground. From this table, we can get the following quite interesting graph. 
+
+``` {r temp vs shooting regression}
+ggplot(incidents_vs_temp, aes(x=as.numeric(AVG_TEMP_F), y=as.numeric(TOTAL_SHOOTINGS)))+
+  labs(x="Average Temperature in Fahrenheit", y="Total Shooting Incidences that Month")+
+  geom_point()+
+  geom_smooth(method="lm")+
+  stat_regline_equation(label.x=45, label.y=220)+
+  stat_cor(aes(label=..rr.label..), label.x=45, label.y=210)
+```
+This shows a fairly strong correlation between the average temperature in a given month and the number of shooting incidents; for every one degree Fahrenheit increase in temperature, there seems to be an average of nearly 3 more shootings.
+
+As far as biases go, all the biases inherent to crime data are present in this data set as well. Not all shootings will be reported or responded to. As far as personal bias goes, well, just because there happens to be a fairly interesting level of correlation between shooting incidences and temperature doesn't mean there had to be. I had already seen some studies suggesting a positive correlation between temperature and crime rates (Field, 1992; Heilmann & Kahn, 2019), so I was probably biased in choosing these two variables in the first place. However, the analysis I have carried is pretty straightforward, so I can't be accused of massaging the data in any way.
+
+
+References: 
+
+FIELD, S., 1992. THE EFFECT OF TEMPERATURE ON CRIME. The British Journal of Criminology, 32(3), pp.340-351.
+
+Heilmann, K., &amp; Kahn, M. (2019). The urban crime and heat gradient in high and low poverty areas. National Bureau of Economic Research. https://doi.org/10.3386/w25961 
